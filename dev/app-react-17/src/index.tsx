@@ -42,9 +42,6 @@ export const provider = reactBridge({
   rootComponent: RootComponent, // a class or stateless function component
   // loadRootComponent: a promise that resolves with the react component. Wait for it to resolve before mounting
   loadRootComponent: (props) => {
-    const root = getRootDom(props);
-    _root = root;
-    _props = props;
     return Promise.resolve(() => <RootComponent {...props} />);
   },
   errorBoundary: () => <Error />,
