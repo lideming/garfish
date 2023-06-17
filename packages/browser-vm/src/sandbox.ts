@@ -36,6 +36,7 @@ import {
   createDefineProperty,
   createDeleteProperty,
 } from './proxyInterceptor/global';
+import { CodeSandbox } from './codeSandbox';
 
 let id = 0;
 const defaultModules: Array<Module> = [
@@ -69,6 +70,7 @@ export class Sandbox {
   public closed = true;
   public initComplete = false;
   public version = __VERSION__;
+  public codeSandbox?: CodeSandbox;
   public global?: Window & typeof globalThis;
   public loader: Loader;
   public options: SandboxOptions;
@@ -128,11 +130,19 @@ export class Sandbox {
     this.closed = false;
     this.replaceGlobalVariables = this.getModuleData();
     const { createdList, overrideList } = this.replaceGlobalVariables;
-    this.global = this.createProxyWindow(Object.keys(overrideList));
+    this.codeSandbox = new CodeSandbox();
+    this.global = this.codeSandbox.global;
+    this.createProxyWindow(Object.keys(overrideList));
 
     if (overrideList && this.global) {
       for (const key in overrideList) {
-        this.global[key] = overrideList[key];
+        const res = Reflect.defineProperty(this.global, key, {
+          value: overrideList[key],
+          configurable: true,
+        });
+        if (!res) {
+          console.warn(`[garfish] failed to override key "${key}"`, { value: overrideList[key] });
+        }
       }
     }
     if (createdList) {
@@ -167,47 +177,19 @@ export class Sandbox {
     this.start();
   }
 
+  // Now the fakeWindow is created by the iframe, it *was* created here.
+  // Keep the function name for plugin compatibility.
   createProxyWindow(moduleKeys: Array<string> = []) {
-    const fakeWindow = createFakeObject(
+    const fakeWindow = this.global!;
+    createFakeObject(
       window,
       this.isInsulationVariable,
       makeMap(moduleKeys),
+      fakeWindow,
     );
 
-    const baseHandlers = {
-      get: createGetter(this),
-      set: createSetter(this),
-      defineProperty: createDefineProperty(this),
-      deleteProperty: createDeleteProperty(this),
-      getPrototypeOf() {
-        return Object.getPrototypeOf(window);
-      },
-    };
-
-    const parentHandlers = {
-      ...baseHandlers,
-      has: createHas(this),
-      getPrototypeOf() {
-        return Object.getPrototypeOf(window);
-      },
-    };
-
-    // In fact, they are all proxy windows, but the problem of `var a = xx` can be solved through has
-    const proxy = new Proxy(fakeWindow, parentHandlers);
-    const subProxy = new Proxy(fakeWindow, baseHandlers);
-
-    proxy.self = subProxy;
-    proxy.window = subProxy;
-    proxy.globalThis = subProxy;
-    proxy.__debug_sandbox__ = this; // This attribute is used for debugger
-    safeWrapper(() => {
-      // Cross-domain errors may occur during access
-      proxy.top = window.top === window ? subProxy : window.top;
-      proxy.parent = window.parent === window ? subProxy : window.parent;
-    });
-
-    addProxyWindowType(proxy, window);
-    return proxy;
+    addProxyWindowType(fakeWindow, window);
+    return fakeWindow;
   }
 
   getModuleData() {
@@ -291,20 +273,21 @@ export class Sandbox {
     const params = {
       window: this.global,
       ...overrideList,
+      ...env,
     };
 
-    if (disableWith) {
-      Object.assign(params, env);
-    } else {
-      const envKeys = Object.keys(env);
-      const optimizeCode =
-        envKeys.length > 0
-          ? this.optimizeGlobalMethod(envKeys)
-          : this.optimizeCode;
+    // if (disableWith) {
+    // Object.assign(params, env);
+    // } else {
+    //   const envKeys = Object.keys(env);
+    //   const optimizeCode =
+    //     envKeys.length > 0
+    //       ? this.optimizeGlobalMethod(envKeys)
+    //       : this.optimizeCode;
 
-      codeRef.code = `with(window) {;${optimizeCode + codeRef.code}\n}`;
-      params[this.envVariable] = env;
-    }
+    //   codeRef.code = `with(window) {;${optimizeCode + codeRef.code}\n}`;
+    //   params[this.envVariable] = env;
+    // }
 
     return params;
   }
@@ -350,10 +333,13 @@ export class Sandbox {
 
     try {
       const params = this.createExecParams(codeRef, env);
-      codeRef.code += `\n${url ? `//# sourceURL=${url}\n` : ''}`;
-      evalWithEnv(codeRef.code, params, this.global);
+      // codeRef.code += `\n${url ? `//# sourceURL=${url}\n` : ''}`;
+      // evalWithEnv(codeRef.code, params, this.global);
+      console.info('[garfish] running code', { code: codeRef.code, params });
+      this.codeSandbox!.runCode(codeRef.code);
     } catch (e) {
-      this.processExecError(e, url, env, options);
+      console.error(e);
+      // this.processExecError(e, url, env, options);
     } finally {
       Promise.resolve().then(revertCurrentScript);
     }

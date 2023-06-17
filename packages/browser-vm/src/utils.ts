@@ -88,8 +88,8 @@ export function createFakeObject(
   target: Record<PropertyKey, any>,
   filter?: (key: PropertyKey) => boolean,
   isWritable?: (key: PropertyKey) => boolean,
+  fakeObject: any = {},
 ) {
-  const fakeObject = {};
   const propertyMap = {};
   const storageBox = Object.create(null); // Store changed value
   const propertyNames = Object.getOwnPropertyNames(target);

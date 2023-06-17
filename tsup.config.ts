@@ -11,7 +11,7 @@ export const baseTsup = (pkg, deleteGlobalName = false): Options => {
     dts,
     sourcemap,
     clean: true,
-    watch: watch ? 'src/' : false,
+    watch: watch ? ['src/', __dirname + '/packages/browser-vm/dist/'] : false,
     // Cannot output iife format using wireit cache
     format: ['esm', 'cjs'],
     legacyOutput: true,
